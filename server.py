@@ -241,10 +241,14 @@ class UserManager:
                     else:
                         if "username" in msg:
                             if self._usernameBanned(msg["username"]):
+                                self._reply(socket, ok=False, why="you are banned")
+                                self._manager.dropSocket(socket)
+                            elif self._usernameOnline(msg["username"]):
+                                self._reply(socket, ok=False, why="username already in use")
                                 self._manager.dropSocket(socket)
                             else:
                                 self._cookies[msg["cookie"]] = (msg["username"], socket)
-                            socket.send(json.dumps({"ok": True}).encode("utf-8"))
+                                self._reply(socket, ok=True)
                         elif msg["cookie"] in self._cookies:
                             username, pair_socket = self._cookies[msg["cookie"]]
                             user = User(username, socket, pair_socket, self._manager)
@@ -271,6 +275,18 @@ class UserManager:
         res = username in self._banlist
         self._lock.release()
         return res
+    
+    def _usernameOnline(self, username):
+        for user in self._socket_user.values():
+            if user.name == username:
+                return True
+        return False
+    
+    def _reply(self, socket, ok, why=None):
+        reply = {"ok": ok}
+        if why:
+            reply["why"] = why
+        socket.send(json.dumps(reply).encode("utf-8"))
     
     def banishUsername(self, username):
         self._lock.acquire()

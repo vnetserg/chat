@@ -17,6 +17,9 @@ def monitor(sock):
         pass
     print("\nConnection terminated.")
     os._exit(0)
+
+def any_key():
+    input("Press enter to quit.")
     
 def main():
     parser = argparse.ArgumentParser()
@@ -33,6 +36,7 @@ def main():
         sock.connect((args.ip, args.port))
     except socket.error:
         print("Unable to establish connection.")
+        any_key()
         sys.exit(1)
 
     cookie = "".join([chr(random.randrange(ord('a'), ord('z')+1)) for i in range(32)])
@@ -42,10 +46,12 @@ def main():
         reply = json.loads(sock.recv(1024).decode("utf-8"))
     except (socket.error, ValueError):
         print("Server rejected authorization.")
+        any_key()
         sys.exit(1)
     
     if not reply["ok"]:
-        print("Server rejected authorization.")
+        print("Server rejected authorization. Reason:", reply["why"])
+        any_key()
         sys.exit(1)
     
     dir = os.path.dirname(os.path.abspath(__file__))
