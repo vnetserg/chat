@@ -31,7 +31,10 @@ def main():
             "-p", str(args.port), "-c", cookie])
     
     while True:
-        sock.send(input("> ").encode("utf-8"))
+        try:
+            sock.send(input("> ").encode("utf-8"))
+        except:
+            break
 
 if __name__ == "__main__":
     main()

@@ -53,6 +53,7 @@ class ChatServer:
 
     def run(self):
         for event in self._manager.eventLoop():
+            #print(event)
             user = event["user"]
             if event["type"] == "new_user":
                 self._addUser(user)
@@ -184,7 +185,10 @@ class User:
     def sendline(self, line):
         if line[-1] != '\n':
             line += '\n'
-        self._write_socket.send(line.encode("utf-8"))
+        try:
+            self._write_socket.send(line.encode("utf-8"))
+        except:
+            pass
 
     def disconnect(self):
         self._manager.dropSocket(self._read_socket)
@@ -227,10 +231,11 @@ class SocketManager:
                         data = sock.recv(1024)
                     except:
                         self.dropSocket(sock)
-                    if data:
-                        yield {"type": "new_data", "socket": sock, "data": data}
                     else:
-                        self.dropSocket(sock)
+                        if data:
+                            yield {"type": "new_data", "socket": sock, "data": data}
+                        else:
+                            self.dropSocket(sock)
 
             for sock in errors:
                 self.dropSocket(sock)
