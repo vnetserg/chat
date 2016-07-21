@@ -210,7 +210,9 @@ class SocketManager:
                     self._client_sockets.remove(sock)
             self._sockets_to_drop = []
 
-            readable, _, _ = select(list(self._client_sockets) + [self._server], [], [])
+            socks_to_check = list(self._client_sockets) + [self._server]
+            readable, _, errors = select(socks_to_check, [], socks_to_check)
+            
             for sock in readable:
                 if sock is self._server:
                     client_sock, client_address = sock.accept()
@@ -229,6 +231,9 @@ class SocketManager:
                         yield {"type": "new_data", "socket": sock, "data": data}
                     else:
                         self.dropSocket(sock)
+
+            for sock in errors:
+                self.dropSocket(sock)
 
     def dropSocket(self, socket):
         self._sockets_to_drop.append(socket)
