@@ -225,8 +225,7 @@ class SocketManager:
                     if data:
                         yield {"type": "new_data", "socket": sock, "data": data}
                     else:
-                        sock.close()
-                        yield {"type": "socket_dropped", "socket": sock}
+                        self.dropSocket(sock)
 
     def dropSocket(self, socket):
         self._sockets_to_drop.append(socket)
