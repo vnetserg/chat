@@ -1,13 +1,24 @@
 #!/usr/bin/python3.5
 # -*- coding: utf-8 -*-
 
-import argparse, threading, sys, time, datetime, json
-import socket
+import argparse, threading, sys, datetime, json, socket
+from queue import Queue
 from select import select
 
 class CommandLine:
-    greeting = "Hello, root! IP: {ip}, PORT: {port}"
-    commands = ["who", "halt"]
+    greeting = "Wellcome, root!\n" \
+        "Server has launched with the following parameters:\n" \
+        " * IP: {ip}\n * PORT: {port}\n" \
+        "You may now type commands. Brief help:\n" \
+        " * who - view list of users currently online\n" \
+        " * say [message] - send message to all connected users\n" \
+        " * kick [user] - kick user by username or ip\n" \
+        " * ban [username] - ban username\n" \
+        " * banip [ip] - ban ip address\n" \
+        " * banlist - view list usernames and ip addresses banned\n" \
+        " * unban [user] - unban username or ip address\n" \
+        " * halt - shutdown server\n"
+    commands = ["who", "say", "kick", "ban", "banip", "banlist", "unban", "halt"]
 
     def __init__(self, chat):
         self._chat = chat
@@ -24,17 +35,66 @@ class CommandLine:
 
     def who(self, args):
         users = self._chat.getUsersInfo()
-        print("Users online:")
-        for user in users:
-            print(" * <{}> from [{}:{}]".format(user["name"],
-                user["ip"], user["port"]))
+        if users:
+            print("Users online:")
+            for user in users:
+                print(" * <{}> from [{}:{}]".format(user["name"],
+                    user["ip"], user["port"]))
+        else:
+            print("No users online.")
+    
+    def kick(self, args):
+        if not args:
+            return print("Error: expected 1 argument.")
+        if not self._chat.dropUser(args[0]):
+            print("User '{}' is not online.".format(args[0]))
+    
+    def say(self, args):
+        if not args:
+            return print("Error: expected at least 1 argument.")
+        self._chat.broadcast(self._chat.time() + " ".join(args))
+    
+    def ban(self, args):
+        if not args:
+            return print("Error: expected 1 argument.")
+        if not self._chat.banishUsername(args[0]):
+            print("Username '{}' already banned.".format(args[0]))
+    
+    def banip(self, args):
+        if not args:
+            return print("Error: expected 1 argument.")
+        if not self._chat.banishIp(args[0]):
+            print("IP '{}' already banned.".format(args[0]))
+    
+    def banlist(self, args):
+        names, ips = self._chat.getAllBanned()
+        if names:
+            print("Banned usernames:")
+            for name in sorted(names):
+                print(" * {}".format(name))
+        if ips:
+            print("Banned IPs:")
+            for ip in sorted(ips):
+                print(" * {}".format(ip))
+        if not names and not ips:
+            print("Banlist is empty.")
+    
+    def unban(self, args):
+        if not args:
+            return print("Error: expected 1 argument.")
+        if not self._chat.unbanishUser(args[0]):
+            print("User '{}' is not banned.".format(args[0]))
 
     def halt(self, args):
         print("Goodbye!")
         sys.exit(0)
 
 class ChatServer:
-    greeting = "Hello, {username}!"
+    greeting = "Wellcome, {username}!\n" \
+        "This is a display window. You will see chat messages here.\n" \
+        "Some magic commands:\n" \
+        " * @who - view list of users currently online\n" \
+        " * @quit - disconnect\n\n"
     connected = "User <{username}> connected"
     disconnected = "User <{username}> disconnected"
     commands = ["who", "quit"]
@@ -113,6 +173,38 @@ class ChatServer:
             for user in sorted(self._users, key = lambda u: u.name)]
         self._lock.release()
         return info
+    
+    def dropUser(self, uid):
+        users = self._getUsers(uid)
+        if users:
+            for user in users:
+                user.disconnect()
+            return True
+        return False
+    
+    def banishUsername(self, username):
+        res = self._manager.banishUsername(username)
+        for user in self._getUsers(username):
+            user.disconnect()
+        return res
+    
+    def banishIp(self, ip):
+        res = self._manager.banishIp(ip)
+        for user in self._getUsers(ip):
+            user.disconnect()
+        return res
+    
+    def getAllBanned(self):
+        names = self._manager.getBannedUsernames()
+        ips = self._manager.getBannedIps()
+        return names, ips
+    
+    def unbanishUser(self, uid):
+        return self._manager.unbanishAll(uid)
+    
+    def _getUsers(self, uid):
+        return [user for user in self._users
+            if user.name == uid or user.ip == uid]
 
 class UserManager:
     def __init__(self, ip, port):
@@ -120,17 +212,18 @@ class UserManager:
         self._cookies = {}
         self._socket_user = {}
         self._banlist = set()
+        self._lock = threading.Lock()
 
     def eventLoop(self):
         for event in self._manager.eventLoop():
             #print(event)
             socket = event["socket"]
             if event["type"] == "new_socket":
-                pass
+                continue
             elif event["type"] == "new_data":
                 try:
                     data = event["data"].decode("utf-8")
-                except:
+                except UnicodeDecodeError:
                     self._manager.dropSocket(socket)
                     continue
 
@@ -147,7 +240,7 @@ class UserManager:
                         self._manager.dropSocket(socket)
                     else:
                         if "username" in msg:
-                            if msg["username"] in self._banlist:
+                            if self._usernameBanned(msg["username"]):
                                 self._manager.dropSocket(socket)
                             else:
                                 self._cookies[msg["cookie"]] = (msg["username"], socket)
@@ -172,6 +265,41 @@ class UserManager:
                         self._manager.dropSocket(user._read_socket)
                     del self._socket_user[user._read_socket]
                     del self._socket_user[user._write_socket]
+    
+    def _usernameBanned(self, username):
+        self._lock.acquire()
+        res = username in self._banlist
+        self._lock.release()
+        return res
+    
+    def banishUsername(self, username):
+        self._lock.acquire()
+        res = username not in self._banlist
+        self._banlist.add(username)
+        self._lock.release()
+        return res
+    
+    def banishIp(self, ip):
+        return self._manager.banish(ip)
+    
+    def getBannedUsernames(self):
+        self._lock.acquire()
+        names = list(self._banlist)
+        self._lock.release()
+        return names
+    
+    def getBannedIps(self):
+        return self._manager.getBanned()
+    
+    def unbanishAll(self, uid):
+        self._lock.acquire()
+        if uid in self._banlist:
+            self._banlist.remove(uid)
+            res = True
+        else:
+            res = False
+        self._lock.release()
+        return res or self._manager.unbanish(uid)
 
 class User:
     def __init__(self, name, write_socket, read_socket, socket_manager):
@@ -201,27 +329,29 @@ class SocketManager:
         self._server.bind((ip, port))
         self._server.listen(5)
 
-        self._banlist = set()
         self._client_sockets = set()
-        self._sockets_to_drop = []
+        self._sockets_to_drop = Queue()
+        self._banlist = set()
+        self._lock = threading.Lock()
 
     def eventLoop(self):
         while True:
-            for sock in self._sockets_to_drop:
+        
+            while not self._sockets_to_drop.empty():
+                sock = self._sockets_to_drop.get()
                 if sock in self._client_sockets:
                     sock.close()
                     yield {"type": "socket_dropped", "socket": sock}
                     self._client_sockets.remove(sock)
-            self._sockets_to_drop = []
 
             socks_to_check = list(self._client_sockets) + [self._server]
-            readable, _, errors = select(socks_to_check, [], socks_to_check)
+            readable, _, errors = select(socks_to_check, [], socks_to_check, 0.2)
             
             for sock in readable:
                 if sock is self._server:
                     client_sock, client_address = sock.accept()
                     client_sock.setblocking(0)
-                    if client_address[0] in self._banlist:
+                    if self._ipBanned(client_address[0]):
                         client_sock.close()
                     else:
                         self._client_sockets.add(client_sock)
@@ -240,8 +370,37 @@ class SocketManager:
             for sock in errors:
                 self.dropSocket(sock)
 
+    def _ipBanned(self, ip):
+        self._lock.acquire()
+        res = ip in self._banlist
+        self._lock.release()
+        return res
+                
     def dropSocket(self, socket):
-        self._sockets_to_drop.append(socket)
+        self._sockets_to_drop.put(socket)
+       
+    def banish(self, ip):
+        self._lock.acquire()
+        res = ip not in  self._banlist
+        self._banlist.add(ip)
+        self._lock.release()
+        return res
+    
+    def getBanned(self):
+        self._lock.acquire()
+        banned = list(self._banlist)
+        self._lock.release()
+        return banned
+    
+    def unbanish(self, ip):
+        self._lock.acquire()
+        if ip in self._banlist:
+            res = True
+            self._banlist.remove(ip)
+        else:
+            res = False
+        self._lock.release()
+        return res
 
 def main():
     parser = argparse.ArgumentParser()
@@ -252,7 +411,6 @@ def main():
     args = parser.parse_args()
 
     chat = ChatServer(args.ip, args.port)
-    #chat.run()
     cmd = CommandLine(chat)
 
     thread = threading.Thread(target=chat.run)

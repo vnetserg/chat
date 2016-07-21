@@ -15,14 +15,25 @@ def main():
 
     username = input("Enter username: ").strip()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((args.ip, args.port))
+    
+    try:
+        sock.connect((args.ip, args.port))
+    except socket.error:
+        print("Unable to establish connection.")
+        sys.exit(1)
 
     cookie = "".join([chr(random.randrange(ord('a'), ord('z')+1)) for i in range(32)])
     sock.send(json.dumps({"username": username, "cookie": cookie}).encode("utf-8"))
 
-    reply = json.loads(sock.recv(1024).decode("utf-8"))
+    try:
+        reply = json.loads(sock.recv(1024).decode("utf-8"))
+    except socket.error:
+        print("Server rejected authorization.")
+        sys.exit(1)
+    
     if not reply["ok"]:
-        sys.exit(0)
+        print("Server rejected authorization.")
+        sys.exit(1)
     
     dir = os.path.dirname(os.path.abspath(__file__))
     file = os.path.join(dir, "client_monitor.py")
@@ -30,6 +41,8 @@ def main():
     proc = Popen(["cmd.exe", "/c", "start", sys.executable, file, "-i", args.ip,
             "-p", str(args.port), "-c", cookie])
     
+    
+    print("You may now type messages here.")
     while True:
         try:
             sock.send(input("> ").encode("utf-8"))

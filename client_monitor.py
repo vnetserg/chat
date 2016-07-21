@@ -13,11 +13,19 @@ def main():
     args = parser.parse_args()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((args.ip, args.port))
+    try:
+        sock.connect((args.ip, args.port))
+    except socket.error:
+        print("Enable to establish connection")
+        sys.exit(1)
+    
     sock.send(json.dumps({"cookie": args.cookie}).encode("utf-8"))
     
     while True:
-        data = sock.recv(1024).decode("utf-8")
+        try:
+            data = sock.recv(1024).decode("utf-8")
+        except (socket.error, UnicodeDecodeError):
+            break
         if not data: break
         print(data, end="")
    
