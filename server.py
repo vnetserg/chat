@@ -409,7 +409,7 @@ def main():
     parser.add_argument("-p", "--port", help="tcp port",
         metavar="PORT", default=1993, type=int)
     args = parser.parse_args()
-
+    
     chat = ChatServer(args.ip, args.port)
     cmd = CommandLine(chat)
 

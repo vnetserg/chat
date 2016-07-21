@@ -1,10 +1,23 @@
 #!/usr/bin/python3.5
 # -*- coding: utf-8 -*-
 
-import argparse, socket, json, random, sys, time, os
+import argparse, socket, json, random, sys, os, threading
+from subprocess import Popen
 
-from subprocess import Popen, PIPE, CREATE_NEW_CONSOLE
+def start_connection_daemon(sock):
+    thread = threading.Thread(target=lambda: monitor(sock))
+    thread.daemon = True
+    thread.start()
+    return thread
 
+def monitor(sock):
+    try:
+        data = sock.recv(1024)
+    except socket.error:
+        pass
+    print("\nConnection terminated.")
+    os._exit(0)
+    
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--ip", help="ip address",
@@ -27,7 +40,7 @@ def main():
 
     try:
         reply = json.loads(sock.recv(1024).decode("utf-8"))
-    except socket.error:
+    except (socket.error, ValueError):
         print("Server rejected authorization.")
         sys.exit(1)
     
@@ -41,13 +54,13 @@ def main():
     proc = Popen(["cmd.exe", "/c", "start", sys.executable, file, "-i", args.ip,
             "-p", str(args.port), "-c", cookie])
     
-    
     print("You may now type messages here.")
+    thread = start_connection_daemon(sock)
     while True:
         try:
             sock.send(input("> ").encode("utf-8"))
-        except:
-            break
+        except (socket.error, KeyboardInterrupt):
+            print("Connection terminated.")
 
 if __name__ == "__main__":
     main()
