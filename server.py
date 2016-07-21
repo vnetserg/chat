@@ -221,7 +221,10 @@ class SocketManager:
                         self._client_sockets.add(client_sock)
                         yield {"type": "new_socket", "socket": client_sock}
                 else:
-                    data = sock.recv(1024)
+                    try:
+                        data = sock.recv(1024)
+                    except:
+                        self.dropSocket(sock)
                     if data:
                         yield {"type": "new_data", "socket": sock, "data": data}
                     else:
